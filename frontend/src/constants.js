@@ -11,6 +11,16 @@ export const materials = {porcelain: '瓷器', paper: '纸本', bronze: '青铜�
 export const packings = {foam: '泡棉贴合', suspension: '悬托固定', double_wall: '双层箱'};
 export const routes = {direct: '直达', transfer: '中转', mountain: '山地运输'};
 export const windowStates = {setup: '展厅布置', booked: '窗口确认', conflict: '窗口冲突', dispatched: '已派车'};
+export const optionStates = {offered: '备选', booked: '已订位', superseded: '已作废'};
+export const bookingRules = {
+  low_risk_earliest: '无冲突时段中的最早低风险窗口',
+  high_risk_earliest: '仅剩高风险时段，订最早窗口并开箱复核',
+  none_conflict_free: '全部时段冲突，等待承运方改期',
+  superseded: '该批备选已被后续订位作废',
+};
+export const bookingOutcomes = {
+  booked: '已订位', all_conflict: '全部冲突', superseded: '已作废',
+};
 export const sections = {
   archive: ['借展档案', '借展单、包装材料与封签'],
   transit: ['运输窗口', '展厅布置、车辆占用与派车'],
@@ -23,4 +33,5 @@ export const auditActions = {
   triage_queued: '进入分流队列', triage_retried: '重试风险分流', triage_scored: '模型判定已归档',
   triage_failed: '分流计算失败', unpack_witnessed: '开箱见证签署', downgrade_sample_required: '主管改判，转抽检',
   unpack_held: '主管暂停运输', unpack_reopened: '主管重开复核', sample_mismatch: '抽检封签不符', sample_cleared: '抽检通过',
+  transit_options_recorded: '录入备选时段并评分', options_all_conflict: '备选时段全部冲突', review_opened: '生成开箱复核单',
 };

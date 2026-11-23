@@ -96,6 +96,23 @@ class TransitReservation(Interval):
     vehicle: Label
 
 
+class TransitOffer(Interval):
+    vehicle: Label
+    expected_rh: int = Field(ge=0, le=100)
+    transfers: int = Field(ge=0, le=8)
+
+
+class TransitOptionBatch(BaseModel):
+    options: list[TransitOffer] = Field(min_length=1, max_length=12)
+
+    @model_validator(mode='after')
+    def validate_options(self):
+        keys = {(option.vehicle, option.begins_at, option.ends_at) for option in self.options}
+        if len(keys) != len(self.options):
+            raise ValueError('备选时段不能重复')
+        return self
+
+
 class GallerySetup(Interval):
     gallery: Label
     label: Label

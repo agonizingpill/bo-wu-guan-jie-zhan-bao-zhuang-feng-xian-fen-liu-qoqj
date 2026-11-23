@@ -114,6 +114,20 @@ textarea { min-height: 80px; resize: vertical; }
 .legend span:nth-child(3)::before { background: var(--rust); border-color: var(--rust); }
 .dispatch-panel { border-top: 1px solid var(--rule); margin-top: 22px; padding-top: 13px; }
 .dispatch-panel > p { margin-top: 7px; }
+.options-panel { border-top: 1px solid var(--rule); margin-top: 22px; padding-top: 13px; }
+.options-panel .section-line { margin-bottom: 10px; }
+.option-scroll { overflow-x: auto; }
+.option-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.option-table th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--rule); padding: 6px 8px 6px 0; }
+.option-table td { vertical-align: top; border-bottom: 1px dotted var(--rule); padding: 7px 8px 7px 0; }
+.option-table tr.chosen td { background: var(--pine-pale); }
+.basis-line { margin-top: 11px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; font-size: 12px; color: var(--muted); }
+.basis-line strong { color: var(--pine); }
+.offer-legs { display: grid; gap: 12px; margin-top: 13px; }
+.offer-leg { border: 1px solid var(--rule); border-radius: 2px; padding: 8px 12px 13px; }
+.offer-leg legend { padding: 0 5px; font-size: 12px; color: var(--rust); font-weight: 700; }
+.offer-leg .form-grid { margin-top: 4px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 1050px) { .offer-leg .form-grid { grid-template-columns: 1fr 1fr; } }
 .transit-fields { grid-template-columns: 1fr 1.15fr 1.15fr; }
 .scoring-sheet { display: grid; grid-template-columns: 1.1fr .9fr; gap: 18px; }
 .scoring-slip { background: var(--linen); border-left: 3px solid var(--rust); padding: 16px 18px; }

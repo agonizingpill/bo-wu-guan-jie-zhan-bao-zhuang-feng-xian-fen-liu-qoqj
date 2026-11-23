@@ -39,11 +39,38 @@ def archive(db):
     return [present(row) for row in db.execute(ARCHIVE + ' ORDER BY l.must_arrive,l.id').fetchall()]
 
 
+def option_history(db, loan_id):
+    latest = db.execute('''SELECT batch_digest FROM transit_option WHERE loan_id=%s
+                           ORDER BY id DESC LIMIT 1''', (loan_id,)).fetchone()
+    if not latest:
+        return [], None
+    options = db.execute('''SELECT id,ordinal,vehicle,begins_at,ends_at,expected_rh,transfers,status,risk,
+                                   probability,conflict_reason,batch_digest,recorded_at,recorded_by
+                            FROM transit_option WHERE loan_id=%s AND batch_digest=%s ORDER BY ordinal''',
+                         (loan_id, latest['batch_digest'])).fetchall()
+    window = db.execute('''SELECT id,status,option_id FROM transit_window WHERE loan_id=%s
+                           AND status IN ('booked','conflict','dispatched')''', (loan_id,)).fetchone()
+    chosen = next((option for option in options if option['status'] == 'booked'), None)
+    if chosen:
+        outcome, rule = 'booked', ('low_risk_earliest' if chosen['risk'] == 'low' else 'high_risk_earliest')
+    elif window and window['status'] == 'conflict' and any(option['id'] == window['option_id'] for option in options):
+        outcome, rule = 'all_conflict', 'none_conflict_free'
+    else:
+        outcome, rule = 'superseded', 'superseded'
+    booking = {'digest': latest['batch_digest'],
+               'recorded_at': max(option['recorded_at'] for option in options),
+               'outcome': outcome, 'rule': rule,
+               'chosen_option_id': chosen['id'] if chosen else None}
+    return options, booking
+
+
 def dossier(db, loan_id):
     row = db.execute(ARCHIVE + ' WHERE l.id=%s', (loan_id,)).fetchone()
     if not row:
         raise HTTPException(404, '未找到借展批次')
-    return {**present(row), 'history': db.execute('''SELECT actor,action,details,recorded_at
+    options, booking = option_history(db, loan_id)
+    return {**present(row), 'options': options, 'booking': booking,
+            'history': db.execute('''SELECT actor,action,details,recorded_at
           FROM audit_entry WHERE loan_id=%s ORDER BY id DESC''', (loan_id,)).fetchall()}
 
 

@@ -1,7 +1,7 @@
 import {api} from './api.js';
-import {roles, sections} from './constants.js';
+import {bookingRules, roles, sections} from './constants.js';
 import {field} from './components.js';
-import {escape as e, fromLocal} from './format.js';
+import {escape as e, fromLocal, toLocal} from './format.js';
 import {archivePage} from './pages/archive.js';
 import {transitPage} from './pages/transit.js';
 import {triagePage} from './pages/triage.js';
@@ -73,6 +73,25 @@ async function render() {
   }
 }
 
+function offerBatch(fields) {
+  const options = [];
+  for (let index = 0; index < 12; index += 1) {
+    const vehicle = (fields[`vehicle-${index}`] ?? '').trim();
+    const begins = fields[`begins-${index}`];
+    const ends = fields[`ends-${index}`];
+    const rh = fields[`rh-${index}`];
+    const transfers = fields[`transfers-${index}`];
+    if (!vehicle && !begins && !ends) continue;
+    if (!vehicle || !begins || !ends || rh === '' || transfers === '') {
+      throw new Error(`时段 ${index + 1} 填写不完整，请补齐车辆、起止时间、湿度与转运次数`);
+    }
+    options.push({vehicle, expected_rh: Number(rh), transfers: Number(transfers),
+      begins_at: fromLocal(begins), ends_at: fromLocal(ends)});
+  }
+  if (!options.length) throw new Error('请至少录入一个备选时段');
+  return options;
+}
+
 function target(action, fields) {
   const base = `/loans/${store.record?.id}`;
   if (action === 'intake') return ['/loans', {...fields, must_arrive: fromLocal(fields.must_arrive)}];
@@ -86,12 +105,14 @@ function target(action, fields) {
     return [action === 'setup' ? '/schedule/setup' : `${base}/transit`,
       {...fields, begins_at: fromLocal(fields.begins_at), ends_at: fromLocal(fields.ends_at)}];
   }
+  if (action === 'options') return [`${base}/transit/options`, {options: offerBatch(fields)}];
   if (action === 'triage') return [`${base}/triage`];
   return [`${base}/review/${action}`, fields];
 }
 
 const confirmations = {intake: '已建立借展档案', crate: '已保存检查记录', setup: '已登记展厅布置',
-  triage: '已提交风险分流', witness: '已签署开箱见证', decision: '已记录主管决定', sample: '封签抽检通过', reopen: '已重开复核'};
+  triage: '已提交风险分流', options: '备选时段已评分并归档', witness: '已签署开箱见证', decision: '已记录主管决定',
+  sample: '封签抽检通过', reopen: '已重开复核'};
 
 app.addEventListener('submit', async (event) => {
   const form = event.target;
@@ -110,8 +131,12 @@ app.addEventListener('submit', async (event) => {
       const response = await authed(path, {data, method});
       if (action === 'intake') history.replaceState(null, '', `#archive/${response.id}`);
       if (action === 'setup' || action === 'transit') store.scheduleDay = fields.begins_at.slice(0, 10);
+      if (action === 'options' && response.transit) store.scheduleDay = toLocal(response.transit.begins_at).slice(0, 10);
+      const allConflict = action === 'options' && response.booking?.outcome === 'all_conflict';
       const conflict = action === 'transit' && response.transit?.status === 'conflict';
-      tell(action === 'transit' ? (conflict ? response.transit.conflict_reason : '运输窗口已确认') : confirmations[action], conflict);
+      tell(action === 'transit' ? (conflict ? response.transit.conflict_reason : '运输窗口已确认')
+        : action === 'options' ? bookingRules[response.booking?.rule] ?? confirmations.options
+        : confirmations[action], conflict || allConflict);
       form.closest('dialog')?.close();
     }
     await render();

@@ -14,7 +14,7 @@
 
 | 岗位 | 账号 | 页面和权限 |
 | --- | --- | --- |
-| 借展经办 | `operator` | 登记借展、补录包装与封签、排运输窗口、提交分流、签署开箱见证、抽检、派车 |
+| 借展经办 | `operator` | 登记借展、补录包装与封签、提交分流、录入承运备选并订位、排运输窗口、签署开箱见证、抽检、派车 |
 | 文保主管 | `supervisor` | 登记展厅布置，签署改判或暂缓，整改后重开复核。可调阅其余档案 |
 | 展务阅览 | `viewer` | 只读调阅借展、排程、评分和复核档案 |
 
@@ -32,6 +32,8 @@
 6. 12:00 至 13:30，纸本展厅标定轨道灯。`BR-2611-019` 的 12:30 至 13:15 运输窗口与布置冲突，且 `BX-019` 缺少封签。经办补录真实封签后仍需改排到 13:30 以后。
 7. 13:20，车队按瓷瓶已确认的 `沪A·藏02` 窗口接单。派车后该批次档案封存，保留开箱和改判记录。
 8. 13:45，`BR-2611-023` 饕餮纹青铜爵由 `沪A·藏06` 直达，低风险且封签及窗口有效，经办可直接确认派车。
+
+承运方常为同一借品一次报几个时段。排程页的“备选时段与订位依据”可给未送评的借品录入这些时段（每个时段含车辆、起止时间、预计最高湿度和转运次数）。
 
 ## 启动
 
@@ -56,7 +58,7 @@ docker compose exec -T backend python -m scripts.seed_demo
 | --- | --- |
 | 界面 | 原生 HTML、CSS、JavaScript ES modules，`frontend/src/pages/`。`components.js` 提供档案索引、标题、状态印记和留痕，`format.js` 与 `api.js` 提供格式及 HTTP 工具，`store.js` 保存当前账号与借展档案。 |
 | 接口和身份 | Python 3.12、FastAPI、JWT、scrypt，`backend/src/app.py`、`security.py`、`middleware.py`。中间件统一请求编号、访问日志和服务异常。 |
-| 业务和持久层 | PostgreSQL 16、psycopg。`backend/migrations/001_archive.sql` 定义领域实体，`schemas.py` 校验输入，`loans.py`、`transit.py`、`triage.py`、`reviews.py` 执行状态规则。 |
+| 业务和持久层 | PostgreSQL 16、psycopg。`backend/migrations/001_archive.sql` 定义领域实体，`002_transit_options.sql` 定义备选时段，`schemas.py` 校验输入，`loans.py`、`transit.py`、`triage.py`、`reviews.py` 执行状态规则。 |
 | 计算 | Redis 7 队列和独立 Python worker，`backend/src/worker.py`、`scoring.py`。 |
 | 部署 | Nginx 1.27、Docker Compose 五服务。Nginx 将 `/api/` 代理到 FastAPI。PostgreSQL 和 Redis 各有持久卷，后端与 worker 另有共享产物卷。模型留档实际写入 PostgreSQL。 |
 
@@ -66,10 +68,14 @@ docker compose exec -T backend python -m scripts.seed_demo
 
 ## 模型和派车口径
 
-- 输入为材质、包装结构、路线类别、最高相对湿度和转运次数。检查保存后，经办可提交分流，形成输入快照。结果入档后，只有封签可补录，通过抽检后的封签也会冻结。
+- 输入为材质、包装结构、路线类别、最高相对湿度和转运次数。检查保存后，经办可提交分流，形成输入快照。走备选订位时，湿度与转运次数取所选时段的值，并在同一事务里形成快照。结果入档后，只有封签可补录，通过抽检后的封签也会冻结。
 - 三个类别用平滑目标编码。类别样本数为 `n` 时，编码为 `(该类别正例数 + 12 × 训练正例率) / (n + 12)`。训练行按 5 折交叉拟合，湿度和转运经标准化后，与编码一起输入 L2 LogisticRegression（`C=1.0`）。
 - 用种子 `2611` 生成 960 条合成检查，分层留出 25%。模型概率达到 `0.58` 生成一张开箱复核单。留出集 ROC AUC、Brier 分数、版本、参数、样本和输入 SHA-256、编码值随结果写库。概率只代表当前演示模型的分流判断。
 - PostgreSQL 保留 `queued` 状态。Redis 通知丢失时，worker 会重新推送数据库中待算的任务。计算失败保留记录并允许同一 case 重试。
+- 备选时段评分复用同一模型：以包装检查的材质、包装结构和路线类别，加上该时段预计最高湿度与转运次数作为输入。每个时段各自算出概率和低／高风险，与时段一起入库（`transit_option`），并在档案留痕中记录整批输入指纹。
+- 订位只考虑与展厅布置、其他有效窗口（同展厅或同车辆）不冲突且不越过到馆期限的时段：先订其中最早结束的低风险时段；没有低风险时段时才订最早的高风险时段，同时生成开箱复核单。全部时段冲突时不订位，登记一张冲突窗口并提示等待承运方改期；承运方改期后录入新批次即可覆盖旧冲突。
+- 选号与另一单订位并发时用排程锁串行化，先到者占用展厅或车辆；首选被占的一单自动从其余无冲突时段中再挑。同一批备选重复提交按指纹幂等返回，不重复订位、重复评分或重复开复核单。
+- 订位与正式评分在同一事务内入档：订位同时写入 `triage_case`（记录输入快照、概率、风险与模型证据），订位窗口通过 `transit_window.option_id` 关联被选时段。排程页可查看每个时段的评分、冲突原因、中选标记和订位依据指纹；只读岗位也能调阅 `GET /loans/{id}/transit/basis`。
 - 派车同时要求封签存在、运输窗口已确认且借展已放行。同一展厅或同一车辆的有效窗口相互排斥。高风险由经办见证、主管签字，改判低风险须留理由并抽检封签。封签不符保留失败记录，仍需重新核验。
 
 ## 共享枚举
@@ -79,6 +85,7 @@ docker compose exec -T backend python -m scripts.seed_demo
 | 岗位 | `migrations/001_archive.sql`、`schemas.py`、`security.py`、`app.py`、`scripts/seed_demo.py` | `constants.js`、`app.js` 和四个 `pages/` 模块 |
 | 借展状态 | SQL 约束、`schemas.py`、`loans.py`、`transit.py`、`triage.py`、`reviews.py`、`worker.py`、seed | `constants.js`、`components.js`、`pages/archive.js`、`pages/transit.js` |
 | 开箱状态 | SQL 约束、`schemas.py`、`reviews.py`、`loans.py`、`worker.py`、seed | `constants.js`、`pages/review.js`、`pages/archive.js` |
+| 备选时段 | SQL 约束、`002_transit_options.sql`、`schemas.py`、`transit.py`、`loans.py`、seed | `constants.js`、`pages/transit.js` |
 | 材质、包装、路线 | SQL 约束、`schemas.py`、`scoring.py`、seed | `constants.js`、`pages/archive.js`、`pages/triage.js` |
 
 许可证见 [MIT License](LICENSE)。

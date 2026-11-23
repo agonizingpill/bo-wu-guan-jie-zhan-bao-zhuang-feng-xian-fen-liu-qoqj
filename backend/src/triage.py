@@ -19,6 +19,9 @@ def enqueue(db, loan_id, actor):
     case = db.execute('SELECT id,status FROM triage_case WHERE loan_id=%s', (loan_id,)).fetchone()
     if case and case['status'] != 'failed':
         raise HTTPException(409, '此批次已进入风险分流，档案中可查看进度')
+    if db.execute('SELECT 1 FROM transit_option WHERE loan_id=%s AND status=%s',
+                  (loan_id, 'booked')).fetchone():
+        raise HTTPException(409, '该批次已按订位时段完成评分，请调阅档案中的订位依据')
     snapshot = Jsonb({key: check[key] for key in FEATURES})
     if case:
         case_id = case['id']

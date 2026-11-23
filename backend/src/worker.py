@@ -37,7 +37,9 @@ def process(case_id):
                        attempts=attempts+1,computed_at=now(),error=NULL WHERE id=%s''',
                    (probability, risk, Jsonb(evidence), case_id))
         if risk == 'high':
-            db.execute("INSERT INTO unpack_review (case_id,status) VALUES (%s,'awaiting_witness')", (case_id,))
+            db.execute('''INSERT INTO unpack_review (case_id,status) VALUES (%s,'awaiting_witness')
+                          ON CONFLICT (case_id) DO NOTHING''', (case_id,))
+            audit(db, loan_id, 'worker', 'review_opened', case_id=case_id)
         change_status(db, loan_id, LoanStatus.REVIEW_REQUIRED if risk == 'high' else LoanStatus.READY)
         audit(db, loan_id, 'worker', 'triage_scored', case_id=case_id, risk=risk, probability=probability)
         print(f'case={case_id} loan={loan_id} risk={risk} probability={probability:.6f}', flush=True)

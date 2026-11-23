@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from . import loans, reviews, transit, triage
 from .middleware import application_errors, request_history
 from .schemas import (CrateInspection, GallerySetup, LoanIntake, Login, ReopenReview, ReviewDecision,
-                      Role, SampleObservation, StaffMember, TransitReservation, Witness)
+                      Role, SampleObservation, StaffMember, TransitOptionBatch, TransitReservation, Witness)
 from .security import issue_token, require, signed_in, verify_password
 from .storage import audit, connection, queue
 
@@ -82,10 +82,22 @@ def block_gallery(data: GallerySetup, staff=Depends(supervisor)):
         return transit.block_gallery(db, data, staff.username)
 
 
+@app.get('/loans/{loan_id}/transit/basis')
+def booking_basis(loan_id: int, staff=Depends(signed_in)):
+    with connection() as db:
+        return transit.basis(db, loan_id)
+
+
 @app.post('/loans/{loan_id}/transit', status_code=201)
 def reserve_window(loan_id: int, data: TransitReservation, staff=Depends(operator)):
     with connection() as db:
         return transit.reserve(db, loan_id, data, staff.username)
+
+
+@app.post('/loans/{loan_id}/transit/options', status_code=201)
+def record_options(loan_id: int, data: TransitOptionBatch, staff=Depends(operator)):
+    with connection() as db:
+        return transit.record_offers(db, loan_id, data, staff.username)
 
 
 @app.post('/loans/{loan_id}/dispatch')

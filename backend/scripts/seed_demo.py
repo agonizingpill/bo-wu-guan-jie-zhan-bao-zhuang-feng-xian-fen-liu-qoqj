@@ -57,10 +57,18 @@ def seed():
             audit(db, loan_id, 'operator', 'crate_checked', crate_code=crate, seal_code=seal,
                   issue='missing_seal' if not seal else None)
             reason = '纸本展厅正在布置（轨道灯标定），请改期' if is_blocked else None
-            window_id = db.execute('''INSERT INTO transit_window (loan_id,gallery,vehicle,label,begins_at,ends_at,status,conflict_reason,recorded_by)
-                          VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'operator') RETURNING id''',
+            option_id = None
+            if is_sample:
+                option_id = db.execute('''INSERT INTO transit_option
+                    (loan_id,ordinal,vehicle,begins_at,ends_at,expected_rh,transfers,status,risk,probability,
+                     conflict_reason,batch_digest,recorded_by)
+                    VALUES (%s,0,%s,%s,%s,79,4,'booked','high',NULL,NULL,%s,'operator') RETURNING id''',
+                                       (loan_id, vehicle, clock(start), clock(end),
+                                        f'seed-{accession.lower()}')).fetchone()['id']
+            window_id = db.execute('''INSERT INTO transit_window (loan_id,gallery,vehicle,label,begins_at,ends_at,status,conflict_reason,recorded_by,option_id)
+                          VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'operator',%s) RETURNING id''',
                                    (loan_id, gallery, vehicle, accession, clock(start), clock(end),
-                                    'conflict' if is_blocked else 'booked', reason)).fetchone()['id']
+                                    'conflict' if is_blocked else 'booked', reason, option_id)).fetchone()['id']
             audit(db, loan_id, 'operator', 'window_conflict' if is_blocked else 'window_reserved',
                   window_id=window_id, reason=reason)
             if is_blocked:
@@ -68,10 +76,14 @@ def seed():
             snapshot = dict(material=material, packing=packing, route_type=route, max_rh=rh, transfers=transfers)
             probability, risk, evidence = score(snapshot)
             assert risk == ('high' if is_sample else 'low'), (accession, probability)
+            if option_id:
+                db.execute('UPDATE transit_option SET probability=%s,risk=%s WHERE id=%s',
+                           (probability, risk, option_id))
             case_id = db.execute('''INSERT INTO triage_case (loan_id,status,input_snapshot,probability,risk,evidence,attempts,requested_by,computed_at)
                           VALUES (%s,'scored',%s,%s,%s,%s,1,'operator',now()) RETURNING id''',
                                  (loan_id, Jsonb(snapshot), probability, risk, Jsonb(evidence))).fetchone()['id']
-            audit(db, loan_id, 'worker', 'triage_scored', case_id=case_id, risk=risk, probability=probability)
+            audit(db, loan_id, 'worker', 'triage_scored', case_id=case_id, risk=risk, probability=probability,
+                  source='transit_option' if option_id else 'seed', option_id=option_id)
             if is_sample:
                 witness = '两侧内衬贴合，器口与肩部无新裂纹。'
                 reason = '开箱确认器物由独立悬托固定，震动痕迹仅见外箱。按规程复核封签。'
